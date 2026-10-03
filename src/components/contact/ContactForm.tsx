@@ -10,7 +10,7 @@ const CATEGORIES = ["Commercial", "Narration", "Animation / Dubbing", "Video Gam
 const USAGES = ["Online / Social", "Broadcast TV / Radio", "Internal / Non-broadcast", "Unknown / Audition"];
 
 type Errors = Partial<Record<"name" | "email" | "details", string>>;
-type Status = "idle" | "sending" | "sent";
+type Status = "idle" | "sending" | "sent" | "error";
 
 const field =
   "w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-burgundy focus:ring-2 focus:ring-burgundy/15";
@@ -44,13 +44,24 @@ export function ContactForm() {
       .filter((l, i) => l !== "" || i > 0)
       .join("\n");
 
-    // Opens the visitor's mail app with everything pre-filled (no server needed).
-    const href = `mailto:${profile.email}?subject=${encodeURIComponent(`Voiceover inquiry - ${d.category}`)}&body=${encodeURIComponent(body)}`;
-    setTimeout(() => {
-      window.location.href = href;
-      setStatus("sent");
-      form.reset();
-    }, 600);
+    const subject = `Voiceover inquiry - ${d.category}`;
+
+    fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: d.name, email: d.email, subject, message: body }),
+    })
+      .then((r) => {
+        if (r.status === 503) {
+          // SMTP not configured on the server: fall back to the visitor's mail app.
+          window.location.href = `mailto:${profile.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        } else if (!r.ok) {
+          throw new Error(String(r.status));
+        }
+        setStatus("sent");
+        form.reset();
+      })
+      .catch(() => setStatus("error"));
   };
 
   const Err = ({ id, msg }: { id: string; msg?: string }) => (
@@ -132,8 +143,8 @@ export function ContactForm() {
       >
         {status === "sending" && <Loader2 className="h-4 w-4 animate-spin" />}
         {status === "sent" && <Check className="h-4 w-4" />}
-        {status === "idle" && <Send className="h-4 w-4" />}
-        {status === "sending" ? "Opening your mail app…" : status === "sent" ? "Sent to your mail app" : "Send Inquiry & Get Quote"}
+        {(status === "idle" || status === "error") && <Send className="h-4 w-4" />}
+        {status === "sending" ? "Sending…" : status === "sent" ? "Message sent" : "Send Inquiry & Get Quote"}
       </button>
 
       <AnimatePresence>
@@ -142,8 +153,16 @@ export function ContactForm() {
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="text-sm text-gray-600" role="status"
           >
-            Your email app should have opened with the message ready — just hit send. Nothing happened?
-            Write directly to <a className="font-semibold text-burgundy underline" href={`mailto:${profile.email}`}>{profile.email}</a>.
+            Thank you! Your message has been sent — I&apos;ll get back to you soon.
+          </motion.p>
+        )}
+        {status === "error" && (
+          <motion.p
+            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="text-sm text-crimson" role="alert"
+          >
+            Something went wrong and your message was not sent. Please try again, or write directly to{" "}
+            <a className="font-semibold underline" href={`mailto:${profile.email}`}>{profile.email}</a>.
           </motion.p>
         )}
       </AnimatePresence>
